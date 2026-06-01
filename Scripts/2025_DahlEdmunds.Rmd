@@ -35,19 +35,19 @@ theme_set(theme_classic(base_size = 15))
 ### Moorea
 ```{r, Moorea bommie data}
 ## need to extract Bray Curtis matrices which will be placed in the nearest neighbor dataset (read in below)
-aprilsizebeta <- read_csv(here("Data","aprilsizebeta.csv"), 
+MooreaH1 <- read_csv(here("Data","Moorea_H1.csv"), 
                           show_col_types = FALSE) %>%
   mutate(site=as.factor(site))
 
 #log matrix for diversity/richness indices
-MOORproxmatrixLOG <- log(aprilsizebeta[,-1:-13]+1)
-mooreamatrix <- aprilsizebeta[,-1:-13]
+MproxmatrixLOG <- log(MooreaH1[,-1:-13]+1)
+mooreamatrix <- MooreaH1[,-1:-13]
 
 
 #switch to vertical orientation
-aprilsizebetaVERT <- melt(aprilsizebeta, id=c("ID", "ID2", "site", "l", "w", "h", "c", "SAcm", "SAm", "Rl", "Rw", "Clength", "Cwidth" ), variable.name = "species")
+MooreaH1VERT <- melt(MooreaH1, id=c("ID", "ID2", "site", "l", "w", "h", "c", "SAcm", "SAm", "Rl", "Rw", "Clength", "Cwidth" ), variable.name = "species")
 
-aprilsizebetaVERT <- aprilsizebetaVERT %>% 
+MooreaH1VERT <- MooreaH1VERT %>% 
   mutate(value = ifelse(is.na(value), 0, value))
 
 ```
@@ -55,13 +55,13 @@ aprilsizebetaVERT <- aprilsizebetaVERT %>%
 ### St. John
 ```{r, St. John bommie data}
 
-julysizebeta <- read_csv(here("Data","julysizebeta.csv"), 
+StJohnH1 <- read_csv(here("Data","StJohn_H1.csv"), 
                           show_col_types = FALSE) %>%
   mutate(site=as.factor(site))
 
 #log matrix for diversity.richness indices
-STJproxmatrixLOG <- log(julysizebeta[,-1:-13]+1)
-stJmatrix <- julysizebeta[,-1:-13]
+STJproxmatrixLOG <- log(StJohnH1[,-1:-13]+1)
+stJmatrix <- StJohnH1[,-1:-13]
 
 ```
 
@@ -76,7 +76,7 @@ OTUmoorea <- otu_table(matrixtest2, taxa_are_rows = TRUE)
 chao1moorea <- estimate_richness(OTUmoorea, measures=c("Chao1"))
 
 #binding the df and removing the incorrect line with 41 (weird mobile bommie that snuck in)
-chaomoorea <- cbind(chao1moorea, aprilsizebeta)
+chaomoorea <- cbind(chao1moorea, MooreaH1)
 chaomoorea <- chaomoorea[-41,]
 
 ```
@@ -90,13 +90,13 @@ OTUstj <- otu_table(stJmatrixt, taxa_are_rows = TRUE)
 chao1stj <- estimate_richness(OTUstj, measures=c("Chao1"))
 
 #binding the df 
-chaostj <- cbind(chao1stj, julysizebeta)
+chaostj <- cbind(chao1stj, StJohnH1)
 ```
 
 ### percent cover data
 #### Moorea
 ```{r, Moorea percent cover}
-MooreaPerCov <- read_csv(here("Data", "MooreaPerCov.csv")) %>%
+MooreaPerCov <- read_csv(here("Data", "MooreaPerCov_H1.csv")) %>%
   mutate(site=as.factor(site))
 
 #make new df that joins the Chao index calculation to the percent cover data
@@ -108,7 +108,7 @@ MooreaBenthic <- MooreaBenthic[-41,]
 
 #### St. John
 ```{r, St. John percent cover}
-STJPerCov <- read_csv(here("Data", "STJPerCov.csv")) %>%
+STJPerCov <- read_csv(here("Data", "STJPerCov_H1.csv")) %>%
   mutate(site=as.factor(site))
 
 STJPerCov[is.na(STJPerCov)] = 0
@@ -438,16 +438,16 @@ moorea7_effects_custom + stj4_effects_custom
 ## Calculating Bray-Curtis
 ### Moorea
 ```{r, Moorea Bray-Curtis calculations}
-MOOREAbraycurtisproxLOG <- vegdist(MOORproxmatrixLOG)
-mooreaBCprox <- as.matrix(MOOREAbraycurtisproxLOG)
-as.dist(as.matrix(MOOREAbraycurtisproxLOG))
+MbraycurtisproxLOG <- vegdist(MproxmatrixLOG)
+mooreaBCprox <- as.matrix(MbraycurtisproxLOG)
+as.dist(as.matrix(MbraycurtisproxLOG))
 
 mooreaBCproxdf <- as.data.frame(mooreaBCprox)
 
 # match bommie IDs to be the column names again so you know which is which
-colnames(mooreaBCproxdf) <- aprilsizebeta$ID2
+colnames(mooreaBCproxdf) <- MooreaH1$ID2
 
-mooreaID <- as.data.frame(aprilsizebeta$ID2)
+mooreaID <- as.data.frame(MooreaH1$ID2)
 mooreaBC <- cbind(mooreaID, mooreaBCproxdf)
 names(mooreaBC)[1] <- "bommie.ID"
 
@@ -464,9 +464,9 @@ as.dist(as.matrix(STJbraycurtisproxLOG))
 stjBCproxdf <- as.data.frame(stjBCprox)
 
 # match bommie IDs to column names again so you know which is which
-colnames(stjBCproxdf) <- julysizebeta$ID
+colnames(stjBCproxdf) <- StJohnH1$ID
 
-stjID <- as.data.frame(julysizebeta$ID)
+stjID <- as.data.frame(StJohnH1$ID)
 stjBC <- cbind(stjID, stjBCproxdf)
 names(stjBC)[1] <- "bommie.ID"
 
@@ -554,11 +554,11 @@ GAMplotMOOREA + GAMplotSTJ
 # H2 - Coral diversity is independent of between-bommie habitat patchiness in Moorea
 ## read and clean data
 ```{r, centroid data Moorea}
-GenusFragDF <-  read_csv(here::here("Data","Moorea_H2.csv"), show_col_types = FALSE) %>%
+M_fragmentation <-  read_csv(here::here("Data","Moorea_H2.csv"), show_col_types = FALSE) %>%
   mutate(site=as.factor(site)) 
 
 #want average by centroid - want to reduce df first so we only have what we use
-centroidGenus <- GenusFragDF[-c(5:10)]
+centroidGenus <- M_fragmentation[-c(5:10)]
 
 # each genus summarized by centroid
 centroidSUM <- centroidGenus %>%
