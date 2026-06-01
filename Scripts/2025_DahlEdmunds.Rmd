@@ -1,0 +1,555 @@
+---
+title: "2025_Dahl&Edmunds_H1 code"
+output: html_document
+date: "2025-06-28"
+---
+
+#load libraries
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Load all required libraries
+library(tidyverse)        # includes dplyr, ggplot2, readr, tibble, stringr, etc.
+library(vegan)            # for nMDS (metaMDS), envfit, diversity analysis
+library(phyloseq)         # estimate_richness, otu_table (Chao1 index)
+library(reshape2)         # melt (long-format transformations)
+library(ggpmisc)          # stat_poly_line(), stat_poly_eq()
+library(sjPlot)           # plot_model() and effects visualization
+library(sjmisc)           # supporting functions for sjPlot
+library(sjlabelled)       # labeling support for sjPlot
+library(gt)               # create styled summary tables
+library(grid)             # low-level grob rendering (used with gt table images)
+library(gridExtra)        # arranging plots/grobs (optional but useful)
+library(cowplot)          # combining plots (e.g., draw_plot)
+library(viridis)          # color scales (e.g., in nMDS plots)
+library(ggrepel)          # non-overlapping text labels on plots
+library(magick)           # reading/processing images (e.g., gt table as PNG)
+library(gtsummary)        # optional: For cleaner summary tables
+library(car)              # outlierTest()
+
+# Optional: Set a clean default ggplot theme
+theme_set(theme_classic(base_size = 15))
+```
+
+# H1 - Patch size and proximity to neighbors affects benthic richness 
+# Size 
+## read in and clean data
+### Moorea
+```{r}
+#H1 - this dataset is the diversity per bommie data 
+## need to extract Bray Curtis matrices which will be placed int he nearest neighbor dataset (read in below)
+aprilsizebeta <- read_csv(here("Data","aprilsizebeta.csv"), 
+                          show_col_types = FALSE) %>%
+  mutate(site=as.factor(site))
+
+#log matrix for diversity/richness indices
+MOORproxmatrixLOG <- log(aprilsizebeta[,-1:-13]+1)
+mooreamatrix <- aprilsizebeta[,-1:-13]
+
+
+#switch to vertical orientation
+aprilsizebetaVERT <- melt(aprilsizebeta, id=c("ID", "ID2", "site", "l", "w", "h", "c", "SAcm", "SAm", "Rl", "Rw", "Clength", "Cwidth" ), variable.name = "species")
+
+aprilsizebetaVERT <- aprilsizebetaVERT %>% 
+  mutate(value = ifelse(is.na(value), 0, value))
+
+```
+
+### St. John
+```{r}
+
+julysizebeta <- read_csv(here("Data","julysizebeta.csv"), 
+                          show_col_types = FALSE) %>%
+  mutate(site=as.factor(site))
+
+#log matrix for diversity.richness indices
+STJproxmatrixLOG <- log(julysizebeta[,-1:-13]+1)
+stJmatrix <- julysizebeta[,-1:-13]
+
+```
+
+### Chao1 richness calculation
+#### Moorea
+```{r, chao 1, echo = FALSE, message=FALSE, warning=FALSE}
+#chao1 richness on log + 1 transformed data
+matrix(mooreamatrix)
+matrixtest2 <- t(mooreamatrix)
+
+OTUmoorea <- otu_table(matrixtest2, taxa_are_rows = TRUE)
+chao1moorea <- estimate_richness(OTUmoorea, measures=c("Chao1"))
+
+#binding the df and removing the incorrect line with 41 (weird mobile bommie that snuck in)
+chaomoorea <- cbind(chao1moorea, aprilsizebeta)
+chaomoorea <- chaomoorea[-41,]
+
+```
+
+#### St. John
+```{r}
+#ST JOHN
+stJmatrixt <- t(stJmatrix)
+OTUstj <- otu_table(stJmatrixt, taxa_are_rows = TRUE)
+
+chao1stj <- estimate_richness(OTUstj, measures=c("Chao1"))
+
+#binding the df 
+chaostj <- cbind(chao1stj, julysizebeta)
+```
+
+### percent cover data
+#### Moorea
+```{r, Moorea percent cover}
+MooreaPerCov <- read_csv(here("Data", "MooreaPerCov.csv")) %>%
+  mutate(site=as.factor(site))
+
+#make new df that joins the Chao index calculation to the percent cover data
+MooreaBenthic <- left_join(MooreaPerCov, chaomoorea, by = c("ID2", "site"))
+
+#mobile bommie is back, need to remove this again
+MooreaBenthic <- MooreaBenthic[-41,]
+```
+
+#### St. John
+```{r, St. John percent cover}
+STJPerCov <- read_csv(here("Data", "STJPerCov.csv")) %>%
+  mutate(site=as.factor(site))
+
+STJPerCov[is.na(STJPerCov)] = 0
+
+#make new df that joins the Chao index calculation to the percent cover data
+STJBenthic <- left_join(STJPerCov, chaostj, by = c("ID", "site", "date"))
+```
+
+
+## Figure 2 - Speces Area Relationship
+
+```{r, figure 2}
+chaomooreaPLOT <- 
+  ggplot(data = chaomoorea, aes(x = log(SAm +1), y = log(Chao1+1))) + 
+  stat_poly_line() +
+  stat_poly_eq(use_label(c("eq", "R2"))) +
+  geom_point()+
+  xlim(0, 2.8) +
+  ylim(1.6, 4.5) +
+  labs(title="a. Moorea", x=expression(paste("log(Surface Area of bommie ", (m^2))), y="log(Chao1)") +
+  geom_smooth(method = "lm", color = "#444444")
+
+chaostjPLOT <- 
+  ggplot(data = chaostj, aes(x = log(SAm +1), y = log(Chao1+1))) + 
+  stat_poly_line() +
+  stat_poly_eq(use_label(c("eq", "R2"))) +
+  geom_point()+
+  xlim(0, 2.8) +
+  ylim(1.6, 4.5) +
+  labs(title="b. St. John", x=expression(paste("log(Surface Area of bommie ", (m^2))), y="") +
+  geom_smooth(method = "lm", color = "#444444")
+
+chaomooreaPLOT + chaostjPLOT
+
+```
+
+and calculate standard error for these slopes to report
+```{r, SAR standard error}
+# Moorea
+moorea1 <- lm(log(Chao1+1)~log(SAm +1), data = MooreaBenthic)
+
+coef(moorea1)
+moorea1_summary <- summary(moorea1)
+moorea1_standard_errors <- moorea1_summary$coefficients[, "Std. Error"]
+moorea1_standard_errors
+
+# St. John
+stj2 <- lm(log(Chao1+1)~log(SAm +1), data = STJBenthic)
+
+coef(stj2)
+stj2_summary <- summary(stj2)
+stj2_standard_errors <- stj2_summary$coefficients[, "Std. Error"]
+
+```
+
+
+
+## nMDS
+### Moorea plot (Appendix S1)
+```{r, Moorea nMDS}
+# nmds plot showing bommies as points, species as vectors, size and site as colors and polygons
+
+NMDS.log<-log1p(MooreaBenthic[,-1:-22]) #log + 1 of counts
+tot <- rowSums(NMDS.log)
+NMDS.log <- NMDS.log[tot > 0, ]
+sol <- metaMDS(NMDS.log,k=3, distance='bray')
+sol$stress
+
+scrs <- as.data.frame(vegan::scores(sol, display = "sites"))
+#attach the information of each bommie back to each row 
+scrs <- cbind(scrs, Group = c(MooreaBenthic$ID2)) #bommie ID
+scrs <- cbind(scrs, Site = c(MooreaBenthic$site)) #site ID
+scrs <- cbind(scrs, SAm = c(MooreaBenthic$SAm)) #surface area
+scrs <- cbind(scrs, Chao1 = c(MooreaBenthic$Chao1)) #Chao 1 value
+
+#species vectors
+vf <- envfit(sol, NMDS.log, perm = 999)
+
+spp.scrs <- as.data.frame(vegan::scores(vf, display = "vectors"))
+spp.scrs <- spp.scrs[which(vf$vectors$pvals<= 0.001),]
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs))
+
+scrs$Group <- as.factor(scrs$Group)
+
+
+#setting numbers to species vectors
+genuslabels <- c(row.names(spp.scrs))
+genuslabels <- as.data.frame(genuslabels) %>%
+  mutate(vector = row_number()) %>%
+  rename('ID' = genuslabels)
+
+# create the gt table
+genustable <- genuslabels %>%
+  gt() %>%
+  tab_style(style = cell_text(style = "italic"),
+    locations = cells_body(columns = c(`ID`)))
+
+genustable <- genustable %>%
+  tab_options(table.font.color = "black")
+
+# convert gt table to HTML format
+genustable_html <- as.character(as_raw_html(genustable))
+
+# grob - saving the table as a visual image that can be placed next to the nMDS for easy visuals
+gt_filename <- "genustable.png"
+gtsave(genustable, filename = gt_filename)
+
+# load the image as a grob
+genustable_image <- image_read(gt_filename)
+genustable_grob <- rasterGrob(genustable_image, interpolate = TRUE)
+
+# plot
+library(viridis)
+p <- ggplot(scrs) +
+  geom_point(mapping = aes(x = NMDS1, y = NMDS2, size = SAm, color = Chao1), alpha = 0.7) +
+  scale_color_viridis(option = "magma", trans = "reverse") +
+  coord_fixed() + ## need aspect ratio of 1!
+  geom_segment(data = spp.scrs,
+                aes(x = 0 + 1.7, xend = NMDS1 + 1.7, y = 0 + 1.5, yend = NMDS2 + 1.5),
+                linewidth = 0.5, color = "darkgrey") +
+   geom_text_repel(data = spp.scrs,
+                   max.overlaps = Inf,
+                   aes(x = NMDS1 + 1.7, y = NMDS2 + 1.5, label = genuslabels$vector),
+             size = 6)+
+  theme(panel.background = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(),  
+    axis.ticks = element_blank())+
+  labs(title="a. Moorea", size = expression(paste("bommie surface area ", (m^2))), color = "species richness (Chao1)") +
+  annotate("text", x=0.75, y=-1.5, label= paste('2D stress = ', round(sol$stress,3)), size = 4)
+p
+
+# put the species vector labels to the left
+Mfinal_plot <- ggdraw() +
+  draw_plot(p, 0, 0, 0.7, 1) +
+  draw_plot(genustable_grob, 0.7, 0, 0.3, 1)
+
+Mfinal_plot
+```
+### St. John plot (Appendix S1)
+```{r, St. John nMDS}
+# nmds plot showing bommies as points, species as vectors, site as colors and polygons
+
+#check for NAs
+csum <- colSums(chaostj[,-1:-15])
+# check if any are missing
+any(is.na(csum))
+
+stj_NMDSlog<-(log(chaostj[,-1:-15]+1)) #log + 1 of counts (ERROR - log1p wasnt working?)
+stj_tot <- rowSums(stj_NMDSlog)
+stj_NMDSlog <- stj_NMDSlog[stj_tot > 0, ]
+stj_sol <- metaMDS(stj_NMDSlog,k=3, distance='bray')
+stj_sol$stress
+
+stj_scrs <- as.data.frame(vegan::scores(stj_sol, display = "sites"))
+
+#attach the information of each bommie back to each row 
+stj_scrs <- cbind(stj_scrs, Site = c(chaostj$site))
+stj_scrs <- cbind(stj_scrs, SAm = c(chaostj$SAm))
+stj_scrs <- cbind(stj_scrs, Chao1 = c(chaostj$Chao1))
+
+#species vectors
+stj_vf <- envfit(stj_sol, stj_NMDSlog, perm = 999)
+
+#vectors
+stj_spp.scrs <- as.data.frame(vegan::scores(stj_vf, display = "vectors"))
+stj_spp.scrs <- stj_spp.scrs[which(stj_vf$vectors$pvals<= 0.001),]
+stj_spp.scrs <- cbind(stj_spp.scrs, stj_Species = rownames(stj_spp.scrs))
+stj_scrs$Site <- as.factor(stj_scrs$Site)
+
+# setting numbers to species vectors
+stj_genuslabels <- c(row.names(stj_spp.scrs))
+stj_genuslabels <- as.data.frame(stj_genuslabels) %>%
+  mutate(vector = row_number()) %>%
+  rename('ID' = stj_genuslabels)
+
+#i want a table in the plot with genera labeled in numbers
+#table with black text, species names in italics
+
+# create the gt table
+stj_genustable <- stj_genuslabels %>%
+  gt() %>%
+  tab_style(style = cell_text(style = "italic"),
+    locations = cells_body(columns = c(`ID`)))
+
+stj_genustable <- stj_genustable %>%
+  tab_options(table.font.color = "black")
+
+# convert gt table to HTML format
+stj_genustable_html <- as.character(as_raw_html(stj_genustable))
+
+# grob
+stj_gt_filename <- "stj_genustable.png"
+gtsave(stj_genustable, filename = stj_gt_filename)
+
+# load image as a grob
+stj_genustable_image <- image_read(stj_gt_filename)
+stj_genustable_grob <- rasterGrob(stj_genustable_image, interpolate = TRUE)
+
+# plot
+stj_p <- ggplot(stj_scrs) +
+  geom_point(mapping = aes(x = NMDS1, y = NMDS2, colour = Chao1, size = SAm), alpha = 0.7) +
+  scale_color_viridis(option = "magma", trans = "reverse") +
+  coord_fixed() + ## need aspect ratio of 1!
+  geom_segment(data = stj_spp.scrs,
+               aes(x = 0 + 1.6, xend = NMDS1 + 1.7, y = 0, yend = NMDS2),
+               linewidth = 0.5, colour = "darkgrey") +
+  geom_text_repel(data = stj_spp.scrs,
+                   max.overlaps = Inf,
+                   aes(x = NMDS1 + 1.7, y = NMDS2, label = stj_genuslabels$vector),
+             size = 6)+
+  theme(panel.background = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(),  
+    axis.ticks = element_blank(),
+    legend.position = "bottom")+
+  labs(title="b. St. John", size = expression(paste("bommie surface area ", (m^2))), color = "species richness (Chao1)") +
+  annotate("text", x=0.2, y=-0.7, label= paste('2D stress = ', round(stj_sol$stress,3)), size = 4)
+stj_p
+
+# put the species vector labels to the left
+STJfinal_plot <- ggdraw() +
+  draw_plot(stj_p, 0, 0, 0.7, 1) +
+  draw_plot(stj_genustable_grob, 0.7, 0, 0.3, 1)
+
+STJfinal_plot
+
+```
+## GLMs
+### Moorea
+```{r, Moorea GLMs}
+# testing: species richness (predictor variable) ~ surface area (fixed factor), rugosity and percent cover (response variables) 
+
+# rugosity conversion - taking the average of the length and width rugosity measurements of each bommie 
+## add column that is average rugosity (Cavg) measured by conformed/planar 
+MooreaBenthic$Cavg <- (MooreaBenthic$Rl / MooreaBenthic$l)
+
+# moving lcoaiton of that column in df for better visualization
+MooreaBenthic <- relocate(MooreaBenthic, Cavg, .before = NULL, .after = Cwidth) 
+
+# build each model
+moorea1 <- lm(log(Chao1+1)~log(SAm +1), data = MooreaBenthic)
+moorea2 <- lm(log(Chao1+1)~log(SAm +1)+log(Cavg+1), data = MooreaBenthic)
+moorea3 <- lm(log(Chao1+1)~log(SAm +1)*log(Cavg+1), data = MooreaBenthic)
+moorea4 <- lm(log(Chao1+1)~log(SAm +1)+log(bare_CCA+1), data = MooreaBenthic)
+moorea5 <- lm(log(Chao1+1)~log(SAm +1)*log(bare_CCA+1), data = MooreaBenthic)
+moorea6 <- lm(log(Chao1+1)~log(SAm +1)+log(bare_CCA+1)+log(Cavg+1), data = MooreaBenthic)
+moorea7 <- lm(log(Chao1+1)~log(SAm +1)*log(bare_CCA+1)*log(Cavg+1), data = MooreaBenthic)
+
+# model selection
+AIC(moorea1, moorea2, moorea3, moorea4, moorea5, moorea6, moorea7)
+#moorea5 is best fit
+
+#check assumptions
+plot(moorea5)
+
+# Pearson's correlations
+cor.test(MooreaBenthic$Cavg, MooreaBenthic$SAm)
+cor.test(MooreaBenthic$Cavg, MooreaBenthic$bare_CCA)
+cor.test(MooreaBenthic$SAm, MooreaBenthic$bare_CCA)
+
+# model output
+summary(moorea5)
+```
+
+### St. John
+```{r, St. John GLMS}
+
+stj2 <- lm(log(Chao1+1)~log(SAm +1), data = STJBenthic)
+stj3 <- lm(log(Chao1+1)~log(SAm +1)+log(bare_CCA+1), data = STJBenthic)
+stj4 <- lm(log(Chao1+1)~log(SAm +1)*log(bare_CCA+1), data = STJBenthic)
+
+AIC(stj2, stj3, stj4)
+# stj2 is best fit
+
+# test assumptions
+plot(stj2)
+
+# Pearson's correlations
+cor.test(STJBenthic$bare_CCA, STJBenthic$SAm)
+
+# model output
+summary(stj2)
+
+```
+### effects plots (Appendix S1)
+```{r}
+
+moorea7_effects <- plot_model(moorea7, sort.est = TRUE)
+moorea7_effects
+
+moorea7_effects_custom <- moorea7_effects +
+  theme_classic() + # Change theme
+  labs(title = "a. Moorea",
+       x = "Predictors",
+       y = "Estimated Effect") +
+  scale_x_discrete(labels = c("SA * C", "SA * AS", "AS", "C", "AS * C", "(SA * AS) * C", "SA")) +
+  theme(plot.title = element_text(size = 14),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.position = "bottom") + # Adjust legend position
+  scale_color_manual(values = c("gray42", "gray42"))
+
+
+# St. John
+stj4_effects <- plot_model(stj4, sort.est = TRUE)
+stj4_effects
+
+stj4_effects_custom <- stj4_effects +
+  theme_classic() + # Change theme
+  labs(title = "a. St. John",
+       x = "",
+       y = "") +
+  scale_x_discrete(labels = c("AS", "SA * AS", "SA")) +
+  theme(plot.title = element_text(size = 14),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.position = "bottom") + # Adjust legend position
+  scale_color_manual(values = c("grey42", "grey42"))
+
+moorea7_effects_custom + stj4_effects_custom
+```
+
+# Proximity
+## Calculating Bray-Curtis
+### Moorea
+```{r, Moorea Bray-Curtis calculations}
+MOOREAbraycurtisproxLOG <- vegdist(MOORproxmatrixLOG)
+mooreaBCprox <- as.matrix(MOOREAbraycurtisproxLOG)
+as.dist(as.matrix(MOOREAbraycurtisproxLOG))
+
+mooreaBCproxdf <- as.data.frame(mooreaBCprox)
+
+# match bommie IDs to be the column names again so you know which is which
+colnames(mooreaBCproxdf) <- aprilsizebeta$ID2
+
+mooreaID <- as.data.frame(aprilsizebeta$ID2)
+mooreaBC <- cbind(mooreaID, mooreaBCproxdf)
+names(mooreaBC)[1] <- "bommie.ID"
+
+# you can now pull Bray-Curtis values from this df
+```
+
+### St. John
+```{r, St. John Bray-Curtis calculations}
+
+STJbraycurtisproxLOG <- vegdist(STJproxmatrixLOG)
+stjBCprox <- as.matrix(STJbraycurtisproxLOG)
+as.dist(as.matrix(STJbraycurtisproxLOG))
+
+stjBCproxdf <- as.data.frame(stjBCprox)
+
+# match bommie IDs to column names again so you know which is which
+colnames(stjBCproxdf) <- julysizebeta$ID
+
+stjID <- as.data.frame(julysizebeta$ID)
+stjBC <- cbind(stjID, stjBCproxdf)
+names(stjBC)[1] <- "bommie.ID"
+
+# you can now pull Bray-Curtis values from this df
+```
+
+## read in and clean data
+```{r, nearest neighbor B-C dfs}
+BCNNmoorea <- read_csv(here("Data", "BCNNmoorea.csv")) %>%
+  mutate(bommie=as.factor(bommie)) %>%
+  mutate(NN=as.factor(NN)) 
+
+  
+BCNNstjohn <- read_csv(here("Data", "BCNNstjohn.csv")) %>%
+  mutate(bommie=as.factor(bommie)) %>%
+  mutate(NN=as.factor(NN)) 
+```
+## GAMs
+### Moorea
+```{r, Moorea GAM}
+mooreaGAM <- gam(BC ~ s(distance_cm, bs = "cr") + 
+                   s(SA_difference, bs = "cr"), 
+                  data = BCNNmoorea,
+                  method = "REML")
+mooreaGAMsum <- summary(mooreaGAM)
+mooreaGAMsum$s.table[, "edf"] #estimated degrees of freedom
+mooreaGAM$df.residual #residual df for model
+
+summary(mooreaGAM)
+```
+
+### St. John
+```{r, St. John GAM}
+stJGAM <- gam(BC ~ s(distance_cm, bs = "cr", k = 9) + 
+                s(SA_difference, bs = "cr", k = 9), 
+                  data = BCNNstjohn,
+                  method = "REML")
+stjSAMsum <- summary(stJGAM)
+stjSAMsum$s.table[, "edf"] #estimated degrees of freedom
+stJGAM$df.residual #residual df for model
+
+summary(stJGAM)
+```
+
+#### GAM plots (Appendix S1)
+```{r, GAM plots}
+p_objmoorea <- plot(mooreaGAM, residuals = TRUE)
+p_objmoorea <- p_objmoorea[[1]] #need to take first IV
+sm_dfmoorea <- as.data.frame(p_objmoorea[c("x", "se", "fit")])
+data_dfmoorea <- as.data.frame(p_objmoorea[c("raw", "p.resid")])
+
+#bind these into one df
+fullmooreadf <- cross_join(sm_dfmoorea, data_dfmoorea)
+
+GAMplotMOOREA <- ggplot(fullmooreadf, aes(x = x, y = fit)) +
+  geom_point(mapping = aes(x = raw, y = p.resid)) +
+  geom_ribbon(aes(ymin = fit - se, ymax = fit + se, y = NULL),
+              alpha = 0.3) +
+  xlim(0, 250) +
+  ylim(-0.25, 0.4) +
+  geom_line() +
+  labs(title="a. Moorea", x="distance between pairs (cm)", y="Partial effect of Bray-Curtis dissimilarity")
+
+# St. John
+p_objstj <- plot(stJGAM, residuals = TRUE)
+p_objstj <- p_objstj[[1]]
+sm_dfstj <- as.data.frame(p_objstj[c("x", "se", "fit")])
+data_dfstj <- as.data.frame(p_objstj[c("raw", "p.resid")])
+
+fullstjdf <- cross_join(sm_dfstj, data_dfstj)
+
+GAMplotSTJ <- ggplot(fullstjdf, aes(x = x, y = fit)) +
+  geom_point(mapping = aes(x = raw, y = p.resid)) +
+  geom_ribbon(aes(ymin = fit - se, ymax = fit + se, y = NULL),
+              alpha = 0.3) +
+  xlim(0, 250) +
+  ylim(-0.25, 0.4) +
+  geom_line() +
+  labs(title="b. St. John", x="", y="")
+
+GAMplotMOOREA + GAMplotSTJ
+
+```
+
+
