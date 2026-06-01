@@ -5,7 +5,7 @@ date: "2025-06-28"
 ---
 
 #load libraries
-```{r, echo = FALSE, message = FALSE, warning = FALSE}
+```{r, libraries, echo = FALSE, message = FALSE, warning = FALSE}
 # Load all required libraries
 library(tidyverse)        # includes dplyr, ggplot2, readr, tibble, stringr, etc.
 library(vegan)            # for nMDS (metaMDS), envfit, diversity analysis
@@ -33,9 +33,8 @@ theme_set(theme_classic(base_size = 15))
 # Size 
 ## read in and clean data
 ### Moorea
-```{r}
-#H1 - this dataset is the diversity per bommie data 
-## need to extract Bray Curtis matrices which will be placed int he nearest neighbor dataset (read in below)
+```{r, Moorea bommie data}
+## need to extract Bray Curtis matrices which will be placed in the nearest neighbor dataset (read in below)
 aprilsizebeta <- read_csv(here("Data","aprilsizebeta.csv"), 
                           show_col_types = FALSE) %>%
   mutate(site=as.factor(site))
@@ -54,7 +53,7 @@ aprilsizebetaVERT <- aprilsizebetaVERT %>%
 ```
 
 ### St. John
-```{r}
+```{r, St. John bommie data}
 
 julysizebeta <- read_csv(here("Data","julysizebeta.csv"), 
                           show_col_types = FALSE) %>%
@@ -122,7 +121,7 @@ STJBenthic <- left_join(STJPerCov, chaostj, by = c("ID", "site", "date"))
 ## Figure 2 - Speces Area Relationship
 
 ```{r, figure 2}
-chaomooreaPLOT <- 
+Fig2a <- 
   ggplot(data = chaomoorea, aes(x = log(SAm +1), y = log(Chao1+1))) + 
   stat_poly_line() +
   stat_poly_eq(use_label(c("eq", "R2"))) +
@@ -132,7 +131,7 @@ chaomooreaPLOT <-
   labs(title="a. Moorea", x=expression(paste("log(Surface Area of bommie ", (m^2))), y="log(Chao1)") +
   geom_smooth(method = "lm", color = "#444444")
 
-chaostjPLOT <- 
+Fig2b <- 
   ggplot(data = chaostj, aes(x = log(SAm +1), y = log(Chao1+1))) + 
   stat_poly_line() +
   stat_poly_eq(use_label(c("eq", "R2"))) +
@@ -142,7 +141,7 @@ chaostjPLOT <-
   labs(title="b. St. John", x=expression(paste("log(Surface Area of bommie ", (m^2))), y="") +
   geom_smooth(method = "lm", color = "#444444")
 
-chaomooreaPLOT + chaostjPLOT
+Fig2a + Fig2b
 
 ```
 
@@ -551,5 +550,227 @@ GAMplotSTJ <- ggplot(fullstjdf, aes(x = x, y = fit)) +
 GAMplotMOOREA + GAMplotSTJ
 
 ```
+
+# H2 - Coral diversity is independent of between-bommie habitat patchiness in Moorea
+## read and clean data
+```{r, centroid data Moorea}
+GenusFragDF <-  read_csv(here::here("Data","Moorea_H2.csv"), show_col_types = FALSE) %>%
+  mutate(site=as.factor(site)) 
+
+#want average by centroid - want to reduce df first so we only have what we use
+centroidGenus <- GenusFragDF[-c(5:10)]
+
+# each genus summarized by centroid
+centroidSUM <- centroidGenus %>%
+  # Calculate mean by genus in centroid areas
+  group_by(centroid, site) %>%
+  summarize(fragratio = mean(SA_ratio),
+            Acropora=sum(Acropora), 
+            Astreopora=sum(Astreopora), 
+            Montipora=sum(Montipora), 
+            Leptoseris=sum(Leptoseris), 
+            Pavona=sum(Pavona), 
+            Danafungia=sum(Danafungia), 
+            Herpolitha=sum(Herpolitha),
+            Lithophyllon=sum(Lithophyllon), 
+            Astrea=sum(Astrea),
+            Cyphastrea=sum(Cyphastrea), 
+            Leptastrea=sum(Leptastrea), 
+            Acanthastrea=sum(Acanthastrea), 
+            Lobophyllia=sum(Lobophyllia), 
+            Pocillopora=sum(Pocillopora), 
+            Porites=sum(Porites), 
+            Psammocora=sum(Psammocora), 
+            Plesiastrea=sum(Plesiastrea),
+            Millepora=sum(Millepora)) %>%
+  as.data.frame()
+
+availableHabitat <- read_csv(here::here("Data", "Moorea_H2_availableHabitat.csv"), show_col_types = FALSE)
+
+MallFrag <- right_join(availableHabitat, centroiddfShannon, by = c("centroid", "site"))
+```
+
+### calculate percent composition by genera
+```{r, genera composition}
+McentroidVERT <- melt(centroiddfShannon, id=c("centroid", "site", "fragratio", "ShannonMOOREAfrag" ), variable.name = "genera") %>%
+  mutate(fragratio = round(fragratio, digits = 1)) %>%
+  mutate(fragratio = as.factor(fragratio))
+
+Mpercent_composition_df <- McentroidVERT %>%
+  group_by(fragratio) %>%
+  mutate(total_count = sum(value)) %>%
+  mutate(percent_composition = (value / total_count) * 100) %>%
+  select(fragratio, genera, percent_composition, total_count)
+
+Mtotalcount <- Mpercent_composition_df %>%
+  group_by(fragratio) %>%
+  summarize(total_count = sum(total_count))
+```
+
+
+
+## GLM
+```{r}
+# first create a matrix to calculate Shannon diversity
+MOOREAfragmatrix <- log(centroidSUM[,-1:-3]+1)
+
+# calculate shannon diversity for each circular survey 
+ShannonMOOREAfrag<-diversity(MOOREAfragmatrix, "shannon")
+
+# merge Shannon values to the centroid df
+centroiddfShannon <- cbind(centroidSUM, ShannonMOOREAfrag)
+
+# relocate columns for ease of viewing
+centroiddfShannon <- relocate(centroiddfShannon, ShannonMOOREAfrag, .before = NULL, .after = fragratio)
+
+#check assumptions
+# normality
+qqp(centroiddfShannon$ShannonMOOREAfrag, "norm")
+
+# GLM
+mooreaFRAG1 <- lm(ShannonMOOREAfrag~fragratio, data = centroiddfShannon)
+
+# homodasticity
+bptest(mooreaFRAG1)
+
+summary(mooreaFRAG1)
+
+#view(centroiddfShannon)
+
+```
+
+## Kendall's Tau rank coorealtion
+```{r, Kendall's Tau}
+cor.test(MallFrag$fragratio, MallFrag$percent_available, method=c("kendall"))
+```
+## Figure 3a
+```{r, Fig 3a}
+Fig3a <- 
+  ggplot(data = centroiddfShannon, aes(x = fragratio, y = ShannonMOOREAfrag)) + 
+  stat_poly_line(geom = "smooth", 
+                 method = "lm",
+                 se = TRUE,
+                 color = "#444444") +
+  stat_poly_eq(use_label(c("eq", "R2"))) +
+  geom_point()+
+  labs(title="a. Moorea", x="fragmentation ratio", y="Shannon-Weiner diversity of corals")
+
+Fig3a
+```
+
+## Figure 3c
+```{r}
+MgeneraPAL2 <- c("#882255", "#BB4781", "#DC8AB3", "#F1BBD6", "#FBD6E8", "#D6CCD1", "#E8BBBB", "#D88888", "#D25252", "#A73C3C", "#751A1A", "#4A0707", "#6F0058", "#AB4B97", "#9873B9", "#FFBBF1", "#DEB5D5", "#D0C9CF")
+
+# plot
+Fig3c <- 
+ggplot(Mpercent_composition_df, aes(x = fragratio, y = percent_composition, fill = factor(genera))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = MgeneraPAL2) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 12),
+        legend.text = element_text(face = "italic")) +
+  scale_y_continuous(limits = c(0,101), expand = expansion(mult = c(0.01, 0))) +
+  labs(title = "c.",
+       x = "fragmentation ratio",
+       y = "proportion composition",
+       fill = "genera")
+Fig3c
+
+```
+
+
+
+# H3 - Within-bommie patchiness affects coral diversity in St. John
+## read and clean data
+```{r}
+StJ_fragmentation <- read_csv(here::here("Data", "StJohn_H3.csv"), show_col_types = FALSE) %>%
+  mutate(site=as.factor(site)) %>%
+  mutate(ID=as.factor(ID))
+
+# percent composition by genera
+STJcentroidVERT <- melt(communitydfShannon, id=c("ID", "date", "site", "ShannonSTJfrag", "percent_coral", "perimeter_ratio", "fragratio", "SA_c", "bommie_SA" ), variable.name = "genera") %>%
+  mutate(fragratio = round(fragratio, digits = 1)) %>%
+  mutate(fragratio = as.factor(fragratio)) %>%
+  mutate(SA_c = round(SA_c, digits = 2)) %>%
+  mutate(SA_c = as.factor(SA_c))
+
+STJpercent_composition_df <- STJcentroidVERT %>%
+  group_by(SA_c) %>%
+  mutate(total_count = sum(value)) %>%
+  mutate(percent_composition = (value / total_count) * 100) %>%
+  select(SA_c, genera, percent_composition, total_count)
+
+STJtotalcount <- STJpercent_composition_df %>%
+  group_by(SA_c) %>%
+  summarize(total_count = sum(total_count))
+```
+
+
+
+## GLM
+```{r}
+# first create a matrix to calculate Shannon diversity
+STJfragmatrix <- subset(StJ_fragmentation, select = c(9:ncol(StJ_fragmentation)))
+
+# calculate shannon indices
+ShannonSTJfrag<-diversity(STJfragmatrix, "shannon")
+
+# merge Shannon values to the centroid df
+communitydfShannon <- cbind(StJ_fragmentation, ShannonSTJfrag)
+
+# relocate columns for ease of viewing
+communitydfShannon <- relocate(communitydfShannon, ShannonSTJfrag, .before = NULL, .after = date)
+
+
+# GLM
+STJFRAGmodel <- lm(log1p(ShannonSTJfrag) ~ SA_c, data = communitydfShannon)
+
+# visual assumption check 
+plot(STJFRAGmodel)
+
+# output
+summary(STJFRAGmodel)
+```
+
+
+
+## Figure 3b
+```{r, Fig 3b}
+Fig3b <- 
+  ggplot(data = communitydfShannon, aes(x = SA_c, y = ShannonSTJfrag)) + 
+  ggpmisc::stat_poly_line(geom = "smooth", 
+                 method = "lm",
+                 se = TRUE,
+                 color = "#444444") +
+  ggpmisc::stat_poly_eq(formula = y ~ x, 
+               aes(label = paste(after_stat(eq.label), after_stat(rr.label), sep = "~~~~")), 
+              label.x = "right", 
+               label.y = "top")+
+  geom_point()+
+  labs(title="b. St. John", x="fragmentation ratio", y="Shannon-Weiner diversity of corals")
+
+Fig3b
+
+```
+
+
+## Figure 3d
+```{r, Fig 3d}
+STJgeneraPAL <- c("#BCC4FF" , "#8A98FF", "#9873B9", "#213AF5", "#0A1DAB", "#000A54", "#00366B", "#2E669C", "#5E9AD4", "#8EBCE8", "#B6CEE4", "#C0C8D0", "#A7CDE0", "#6AAFD2", "#3484AD", "#135F86", "#024263", "#02635F", "#388C88", "#5ABBB6", "#90D4D0", "#44AA99")
+
+Fig3d <- 
+ggplot(STJpercent_composition_df, aes(x = SA_c, y = percent_composition, fill = factor(genera))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = STJgeneraPAL) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 12),
+        legend.text = element_text(face = "italic")) +
+  scale_y_continuous(limits = c(0,101), expand = expansion(mult = c(0.01, 0))) +
+  labs(title = "d.",
+       x = "fragmentation ratio",
+       y = "proportion composition",
+       fill = "genera")
+```
+
+
 
 
